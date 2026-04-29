@@ -13,6 +13,10 @@ function getEnv(name: string) {
   return value;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function sanitizeRepoName(value: string) {
   return value
     .toLowerCase()
@@ -23,6 +27,21 @@ export function sanitizeRepoName(value: string) {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 80);
+}
+
+function encodeGitHubPath(path: string) {
+  return path
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function getErrorText(data: any) {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  return JSON.stringify(data, null, 2);
 }
 
 async function githubRequest(path: string, options: RequestInit = {}) {
@@ -49,10 +68,7 @@ async function githubRequest(path: string, options: RequestInit = {}) {
   }
 
   if (!response.ok) {
-    const message =
-      typeof data === "string" ? data : JSON.stringify(data, null, 2);
-
-    throw new Error(`Erro GitHub ${response.status}: ${message}`);
+    throw new Error(`Erro GitHub ${response.status}: ${getErrorText(data)}`);
   }
 
   return data;
@@ -102,12 +118,14 @@ export async function createRepository(repoName: string, description: string) {
   });
 
   if (createResult.ok) {
+    console.log("Repositório criado:", repoName);
     return createResult.data;
   }
 
+  const responseText = getErrorText(createResult.data).toLowerCase();
+
   const alreadyExists =
-    createResult.status === 422 &&
-    JSON.stringify(createResult.data).toLowerCase().includes("already exists");
+    createResult.status === 422 && responseText.includes("already exists");
 
   if (alreadyExists && owner) {
     console.log("Repositório já existe. Reutilizando:", repoName);
@@ -117,12 +135,9 @@ export async function createRepository(repoName: string, description: string) {
     });
   }
 
-  const message =
-    typeof createResult.data === "string"
-      ? createResult.data
-      : JSON.stringify(createResult.data, null, 2);
-
-  throw new Error(`Erro GitHub ${createResult.status}: ${message}`);
+  throw new Error(
+    `Erro GitHub ${createResult.status}: ${getErrorText(createResult.data)}`
+  );
 }
 
 async function getExistingFileSha({
@@ -134,10 +149,7 @@ async function getExistingFileSha({
   repo: string;
   path: string;
 }) {
-  const safePath = path
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+  const safePath = encodeGitHubPath(path);
 
   const result = await githubRequestSafe(
     `/repos/${owner}/${repo}/contents/${safePath}`,
@@ -157,6 +169,26 @@ async function getExistingFileSha({
   return null;
 }
 
+function buildFileBody({
+  file,
+  sha,
+}: {
+  file: GitHubFile;
+  sha?: string | null;
+}) {
+  const body: any = {
+    message: sha ? `Atualiza ${file.path}` : `Cria ${file.path}`,
+    content: Buffer.from(file.content, "utf8").toString("base64"),
+    branch: "main",
+  };
+
+  if (sha) {
+    body.sha = sha;
+  }
+
+  return body;
+}
+
 export async function uploadFileToRepo({
   owner,
   repo,
@@ -166,33 +198,71 @@ export async function uploadFileToRepo({
   repo: string;
   file: GitHubFile;
 }) {
-  const safePath = file.path
-    .split("/")
-    .map((part) => encodeURIComponent(part))
-    .join("/");
+  const safePath = encodeGitHubPath(file.path);
 
-  const contentBase64 = Buffer.from(file.content, "utf8").toString("base64");
-
-  const existingSha = await getExistingFileSha({
+  let existingSha = await getExistingFileSha({
     owner,
     repo,
     path: file.path,
   });
 
-  const body: any = {
-    message: existingSha ? `Atualiza ${file.path}` : `Cria ${file.path}`,
-    content: contentBase64,
-    branch: "main",
-  };
+  let result = await githubRequestSafe(
+    `/repos/${owner}/${repo}/contents/${safePath}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(
+        buildFileBody({
+          file,
+          sha: existingSha,
+        })
+      ),
+    }
+  );
 
-  if (existingSha) {
-    body.sha = existingSha;
+  if (result.ok) {
+    return result.data;
   }
 
-  return githubRequest(`/repos/${owner}/${repo}/contents/${safePath}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  const responseText = getErrorText(result.data).toLowerCase();
+
+  const needsSha =
+    result.status === 422 &&
+    (responseText.includes("sha") ||
+      responseText.includes("already exists") ||
+      responseText.includes("invalid request"));
+
+  if (needsSha) {
+    console.log(`GitHub pediu SHA para ${file.path}. Buscando SHA e tentando novamente...`);
+
+    await sleep(1200);
+
+    existingSha = await getExistingFileSha({
+      owner,
+      repo,
+      path: file.path,
+    });
+
+    if (existingSha) {
+      result = await githubRequestSafe(
+        `/repos/${owner}/${repo}/contents/${safePath}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(
+            buildFileBody({
+              file,
+              sha: existingSha,
+            })
+          ),
+        }
+      );
+
+      if (result.ok) {
+        return result.data;
+      }
+    }
+  }
+
+  throw new Error(`Erro GitHub ${result.status}: ${getErrorText(result.data)}`);
 }
 
 export async function uploadFilesToRepo({
