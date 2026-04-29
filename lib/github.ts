@@ -26,7 +26,7 @@ export function sanitizeRepoName(value: string) {
 }
 
 async function githubRequest(path: string, options: RequestInit = {}) {
-  const token = getEnv("GITHUB_TOKEN");
+  const token = getEnv("APP_GITHUB_TOKEN");
 
   const response = await fetch(`https://api.github.com${path}`, {
     ...options,
