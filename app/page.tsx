@@ -2,11 +2,19 @@
 
 import { useState } from "react";
 
+type CreateAppResult = {
+  ok: boolean;
+  repoName: string;
+  repoUrl: string;
+  filesCount: number;
+  usedFallback?: boolean;
+};
+
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [repoName, setRepoName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<CreateAppResult | null>(null);
   const [error, setError] = useState("");
 
   async function handleCreateApp() {
@@ -26,15 +34,27 @@ export default function Home() {
         }),
       });
 
-      const data = await response.json();
+      const text = await response.text();
 
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error || "Erro ao criar app.");
+      let data: any = null;
+
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(
+          `A API não retornou JSON válido. Status: ${response.status}. Resposta: ${
+            text || "vazia"
+          }`
+        );
+      }
+
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || `Erro HTTP ${response.status}`);
       }
 
       setResult(data);
     } catch (err: any) {
-      setError(err.message || "Erro inesperado.");
+      setError(err?.message || "Erro inesperado ao criar o app.");
     } finally {
       setLoading(false);
     }
@@ -63,19 +83,23 @@ export default function Home() {
           <div className="form">
             <div className="field">
               <label>Nome do repositório</label>
+
               <input
                 value={repoName}
                 onChange={(event) => setRepoName(event.target.value)}
-                placeholder="ex: app-brigada-inteligente"
+                placeholder="ex: portal-telecom-teste-01"
+                disabled={loading}
               />
             </div>
 
             <div className="field">
               <label>O que o app deve fazer?</label>
+
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
-                placeholder="Ex: Crie um app de controle de brigadistas com dashboard, status de presença, cadastro de equipe e tela inicial moderna."
+                placeholder="Ex: Crie um app com portal de telecom, login, área de usuário, dashboard e notificações importadas de uma API externa."
+                disabled={loading}
               />
             </div>
 
@@ -93,8 +117,21 @@ export default function Home() {
           {result && (
             <div className="status success">
               <h2>App criado com sucesso 🚀</h2>
+
+              <p>
+                Repositório: <strong>{result.repoName}</strong>
+              </p>
+
               <p>Arquivos criados: {result.filesCount}</p>
-              <a href={result.repoUrl} target="_blank">
+
+              {result.usedFallback && (
+                <p>
+                  A IA demorou ou retornou algo inválido, então o sistema usou o
+                  template automático para concluir a criação.
+                </p>
+              )}
+
+              <a href={result.repoUrl} target="_blank" rel="noreferrer">
                 Abrir repositório no GitHub
               </a>
             </div>
