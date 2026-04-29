@@ -41,84 +41,123 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-6 flex items-center justify-center">
-      <section className="w-full max-w-4xl rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl">
-        <div className="mb-8">
-          <p className="text-emerald-400 font-semibold mb-2">
-            Agente IA + GitHub
-          </p>
+    <main className="page">
+      <div className="shell">
+        <section className="hero">
+          <div className="badge">
+            <span className="badge-dot"></span>
+            Agente IA + GitHub + Vercel
+          </div>
 
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">
-            Criador de Apps Automático
+          <h1>
+            Criador de apps <br />
+            <span className="gradient">automático</span>
           </h1>
 
-          <p className="text-slate-300 text-lg">
-            Descreva o aplicativo que você quer criar. O agente gera os arquivos
-            e cria um repositório no seu GitHub.
+          <p className="subtitle">
+            Descreva o aplicativo que você quer criar. O agente gera a estrutura
+            inicial, cria um repositório no GitHub e prepara tudo para evoluir o
+            projeto.
           </p>
-        </div>
 
-        <div className="space-y-5">
-          <div>
-            <label className="block mb-2 text-sm text-slate-300">
-              Nome do repositório
-            </label>
+          <div className="form">
+            <div className="field">
+              <label>Nome do repositório</label>
+              <input
+                value={repoName}
+                onChange={(event) => setRepoName(event.target.value)}
+                placeholder="ex: app-brigada-inteligente"
+              />
+            </div>
 
-            <input
-              value={repoName}
-              onChange={(event) => setRepoName(event.target.value)}
-              placeholder="ex: app-brigada-inteligente"
-              className="w-full rounded-2xl bg-slate-900 border border-white/10 p-4 outline-none focus:border-emerald-400"
-            />
-          </div>
+            <div className="field">
+              <label>O que o app deve fazer?</label>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="Ex: Crie um app de controle de brigadistas com dashboard, status de presença, cadastro de equipe e tela inicial moderna."
+              />
+            </div>
 
-          <div>
-            <label className="block mb-2 text-sm text-slate-300">
-              O que o app deve fazer?
-            </label>
-
-            <textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Ex: Crie um app de controle de brigadistas com dashboard, status de presença, cadastro de equipe e tela inicial moderna."
-              rows={7}
-              className="w-full rounded-2xl bg-slate-900 border border-white/10 p-4 outline-none focus:border-emerald-400"
-            />
-          </div>
-
-          <button
-            onClick={handleCreateApp}
-            disabled={loading || !prompt.trim()}
-            className="w-full rounded-2xl bg-emerald-500 text-slate-950 font-bold p-4 hover:bg-emerald-400 disabled:opacity-50"
-          >
-            {loading ? "Criando app..." : "Criar app no GitHub"}
-          </button>
-        </div>
-
-        {error && (
-          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-red-200">
-            {error}
-          </div>
-        )}
-
-        {result && (
-          <div className="mt-6 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4">
-            <h2 className="text-xl font-bold mb-2">App criado com sucesso 🚀</h2>
-
-            <p className="text-slate-300 mb-3">
-              Arquivos criados: {result.filesCount}
-            </p>
-
-            <a
-              href={result.repoUrl}
-              target="_blank"
-              className="text-emerald-300 underline"
+            <button
+              className="action"
+              onClick={handleCreateApp}
+              disabled={loading || !prompt.trim()}
             >
-              Abrir repositório no GitHub
-            </a>
+              {loading ? "Criando app e repositório..." : "Criar app no GitHub"}
+            </button>
           </div>
-        )}
-      </section>
+
+          {error && <div className="status error">{error}</div>}
+
+          {result && (
+            <div className="status success">
+              <h2>App criado com sucesso 🚀</h2>
+              <p>Arquivos criados: {result.filesCount}</p>
+              <a href={result.repoUrl} target="_blank">
+                Abrir repositório no GitHub
+              </a>
+            </div>
+          )}
+        </section>
+
+        <aside className="preview">
+          <div className="preview-header">
+            <h2 className="preview-title">Prévia do fluxo</h2>
+
+            <div className="window-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+          </div>
+
+          <div className="mock-card">
+            <div className="mock-line big"></div>
+            <div className="mock-line medium"></div>
+            <div className="mock-line small"></div>
+
+            <div className="mock-grid">
+              <div className="mock-box">
+                <strong>1. Ideia</strong>
+                <p>Você descreve o app que quer criar em linguagem simples.</p>
+              </div>
+
+              <div className="mock-box">
+                <strong>2. IA</strong>
+                <p>O agente monta os arquivos iniciais do projeto.</p>
+              </div>
+
+              <div className="mock-box">
+                <strong>3. GitHub</strong>
+                <p>O sistema cria o repositório e envia o código.</p>
+              </div>
+
+              <div className="mock-box">
+                <strong>4. Evolução</strong>
+                <p>Depois o app pode ganhar login, banco, dashboard e deploy.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="steps">
+            <div className="step">
+              <span className="step-number">01</span>
+              <span>Digite o nome do repositório.</span>
+            </div>
+
+            <div className="step">
+              <span className="step-number">02</span>
+              <span>Explique o aplicativo que deseja criar.</span>
+            </div>
+
+            <div className="step">
+              <span className="step-number">03</span>
+              <span>Clique para gerar e aguarde o GitHub receber os arquivos.</span>
+            </div>
+          </div>
+        </aside>
+      </div>
     </main>
   );
 }
