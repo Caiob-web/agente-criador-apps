@@ -4,14 +4,10 @@ import {
   sanitizeRepoName,
   uploadFilesToRepo,
 } from "@/lib/github";
-import { fallbackFiles } from "@/lib/templates";
+import { fallbackSpec, normalizeSpec } from "@/lib/app-spec";
+import { generateProfessionalFiles } from "@/lib/professional-generator";
 
 export const maxDuration = 120;
-
-type GitHubFile = {
-  path: string;
-  content: string;
-};
 
 function extractJson(text: string) {
   const cleaned = text
@@ -27,27 +23,6 @@ function extractJson(text: string) {
   }
 
   return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-}
-
-function normalizeFiles(data: any): GitHubFile[] {
-  const files = Array.isArray(data?.files) ? data.files : [];
-
-  return files
-    .filter((file: any) => {
-      return (
-        typeof file?.path === "string" &&
-        typeof file?.content === "string" &&
-        !file.path.includes("..") &&
-        !file.path.startsWith("/") &&
-        file.path.trim().length > 0 &&
-        file.content.trim().length > 0
-      );
-    })
-    .map((file: any) => ({
-      path: file.path.trim(),
-      content: file.content,
-    }))
-    .slice(0, 10);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -68,83 +43,65 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function generateAppFiles(prompt: string): Promise<{
-  files: GitHubFile[];
-  usedFallback: boolean;
-}> {
+async function generateSpec(prompt: string) {
   try {
     const result = await withTimeout(
       generateText({
         model: process.env.AI_MODEL || "openai/gpt-5.4",
         prompt: `
-Você é um gerador de aplicações Next.js.
+Você é um arquiteto de produto digital.
 
-Crie um app simples, bonito e funcional com base neste pedido:
+Com base no pedido abaixo, crie uma especificação profissional para um app estático em Next.js.
 
+Pedido:
 "${prompt}"
 
-Regras obrigatórias:
-- Responda somente JSON válido.
-- Não use markdown.
-- Não explique nada.
-- O JSON deve ter este formato:
+Responda SOMENTE JSON válido, sem markdown e sem explicações.
+
+Formato obrigatório:
 {
-  "files": [
+  "appName": "Nome profissional do app",
+  "appType": "portal | dashboard | landing | admin | saas | mapa | crud",
+  "tagline": "Frase curta de impacto",
+  "description": "Descrição profissional do produto",
+  "primaryColor": "#22c55e",
+  "secondaryColor": "#38bdf8",
+  "pages": ["Início", "Login", "Dashboard", "Notificações"],
+  "features": ["Recurso 1", "Recurso 2", "Recurso 3"],
+  "metrics": [
     {
-      "path": "package.json",
-      "content": "conteúdo do arquivo"
+      "label": "Usuários",
+      "value": "128",
+      "description": "Descrição curta"
     }
   ]
 }
 
-Arquivos obrigatórios:
-- package.json
-- app/layout.tsx
-- app/page.tsx
-- app/globals.css
-- README.md
-- .gitignore
-
-Regras técnicas:
-- Use Next.js App Router.
-- Não use banco de dados ainda.
-- Não use bibliotecas externas além de next, react e react-dom.
-- Crie uma interface moderna em português.
-- Gere arquivos pequenos para evitar timeout.
-- Não crie mais de 10 arquivos.
-- Não use Tailwind.
-- Não use imagens externas.
+Regras:
+- App em português.
+- Visual profissional.
+- Nada genérico demais.
+- Foque no domínio do pedido.
+- Máximo 8 páginas.
+- Máximo 10 recursos.
+- Máximo 4 métricas.
 `,
       }),
-      20000
+      16000
     );
 
-    const data = extractJson(result.text);
-    const files = normalizeFiles(data);
-
-    const hasPackage = files.some((file) => file.path === "package.json");
-    const hasLayout = files.some((file) => file.path === "app/layout.tsx");
-    const hasPage = files.some((file) => file.path === "app/page.tsx");
-    const hasCss = files.some((file) => file.path === "app/globals.css");
-
-    if (!hasPackage || !hasLayout || !hasPage || !hasCss || files.length < 4) {
-      console.log("IA retornou arquivos incompletos. Usando fallback.");
-      return {
-        files: fallbackFiles(prompt),
-        usedFallback: true,
-      };
-    }
+    const raw = extractJson(result.text);
 
     return {
-      files,
-      usedFallback: false,
+      spec: normalizeSpec(raw, prompt),
+      usedSpecFallback: false,
     };
   } catch (error) {
-    console.error("Erro ou demora ao gerar arquivos com IA. Usando fallback:", error);
+    console.error("Erro ao gerar especificação. Usando fallback:", error);
 
     return {
-      files: fallbackFiles(prompt),
-      usedFallback: true,
+      spec: fallbackSpec(prompt),
+      usedSpecFallback: true,
     };
   }
 }
@@ -174,8 +131,14 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log("Gerando arquivos...");
-    const { files, usedFallback } = await generateAppFiles(prompt);
+    console.log("Gerando especificação profissional...");
+    const { spec, usedSpecFallback } = await generateSpec(prompt);
+
+    console.log("Montando arquivos profissionais...");
+    const files = generateProfessionalFiles({
+      prompt,
+      spec,
+    });
 
     console.log("Criando repositório no GitHub...");
     const repo = await createRepository(
@@ -209,7 +172,9 @@ export async function POST(request: Request) {
       repoName,
       repoUrl: repo.html_url,
       filesCount: files.length,
-      usedFallback,
+      usedFallback: usedSpecFallback,
+      appName: spec.appName,
+      appType: spec.appType,
     });
   } catch (error: any) {
     console.error("Erro geral na API:", error);
