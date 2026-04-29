@@ -6,7 +6,7 @@ import {
 } from "@/lib/github";
 import { fallbackFiles } from "@/lib/templates";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 type GitHubFile = {
   path: string;
@@ -38,20 +38,45 @@ function normalizeFiles(data: any): GitHubFile[] {
         typeof file?.path === "string" &&
         typeof file?.content === "string" &&
         !file.path.includes("..") &&
-        !file.path.startsWith("/")
+        !file.path.startsWith("/") &&
+        file.path.trim().length > 0 &&
+        file.content.trim().length > 0
       );
     })
     .map((file: any) => ({
-      path: file.path,
+      path: file.path.trim(),
       content: file.content,
-    }));
+    }))
+    .slice(0, 10);
 }
 
-async function generateAppFiles(prompt: string): Promise<GitHubFile[]> {
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Tempo limite excedido após ${ms / 1000} segundos.`));
+    }, ms);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
+async function generateAppFiles(prompt: string): Promise<{
+  files: GitHubFile[];
+  usedFallback: boolean;
+}> {
   try {
-    const result = await generateText({
-      model: process.env.AI_MODEL || "openai/gpt-5.4",
-      prompt: `
+    const result = await withTimeout(
+      generateText({
+        model: process.env.AI_MODEL || "openai/gpt-5.4",
+        prompt: `
 Você é um gerador de aplicações Next.js.
 
 Crie um app simples, bonito e funcional com base neste pedido:
@@ -80,27 +105,47 @@ Arquivos obrigatórios:
 - README.md
 - .gitignore
 
-Use Next.js App Router.
-Não use banco de dados ainda.
-Não use bibliotecas externas além de next, react e react-dom.
-Crie uma interface moderna em português.
+Regras técnicas:
+- Use Next.js App Router.
+- Não use banco de dados ainda.
+- Não use bibliotecas externas além de next, react e react-dom.
+- Crie uma interface moderna em português.
+- Gere arquivos pequenos para evitar timeout.
+- Não crie mais de 10 arquivos.
+- Não use Tailwind.
+- Não use imagens externas.
 `,
-    });
+      }),
+      20000
+    );
 
     const data = extractJson(result.text);
     const files = normalizeFiles(data);
 
     const hasPackage = files.some((file) => file.path === "package.json");
+    const hasLayout = files.some((file) => file.path === "app/layout.tsx");
     const hasPage = files.some((file) => file.path === "app/page.tsx");
+    const hasCss = files.some((file) => file.path === "app/globals.css");
 
-    if (!hasPackage || !hasPage || files.length < 4) {
-      return fallbackFiles(prompt);
+    if (!hasPackage || !hasLayout || !hasPage || !hasCss || files.length < 4) {
+      console.log("IA retornou arquivos incompletos. Usando fallback.");
+      return {
+        files: fallbackFiles(prompt),
+        usedFallback: true,
+      };
     }
 
-    return files;
+    return {
+      files,
+      usedFallback: false,
+    };
   } catch (error) {
-    console.error("Erro ao gerar arquivos com IA:", error);
-    return fallbackFiles(prompt);
+    console.error("Erro ou demora ao gerar arquivos com IA. Usando fallback:", error);
+
+    return {
+      files: fallbackFiles(prompt),
+      usedFallback: true,
+    };
   }
 }
 
@@ -118,15 +163,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const owner = process.env.GITHUB_OWNER;
-
-    if (!owner) {
-      return Response.json(
-        { ok: false, error: "GITHUB_OWNER não configurado." },
-        { status: 500 }
-      );
-    }
-
     const repoName = sanitizeRepoName(
       rawRepoName || `app-${Date.now().toString()}`
     );
@@ -138,27 +174,45 @@ export async function POST(request: Request) {
       );
     }
 
-    const files = await generateAppFiles(prompt);
+    console.log("Gerando arquivos...");
+    const { files, usedFallback } = await generateAppFiles(prompt);
 
+    console.log("Criando repositório no GitHub...");
     const repo = await createRepository(
       repoName,
       `Aplicação criada por agente IA: ${prompt.slice(0, 120)}`
     );
 
+    const owner = repo?.owner?.login || process.env.GITHUB_OWNER;
+
+    if (!owner) {
+      return Response.json(
+        {
+          ok: false,
+          error: "Não foi possível identificar o dono do repositório criado.",
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log("Enviando arquivos para o GitHub...");
     await uploadFilesToRepo({
       owner,
       repo: repoName,
       files,
     });
 
+    console.log("Finalizado com sucesso.");
+
     return Response.json({
       ok: true,
       repoName,
       repoUrl: repo.html_url,
       filesCount: files.length,
+      usedFallback,
     });
   } catch (error: any) {
-    console.error(error);
+    console.error("Erro geral na API:", error);
 
     return Response.json(
       {
