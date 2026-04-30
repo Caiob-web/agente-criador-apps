@@ -1,6 +1,3 @@
-mkdir -p app/api/history
-
-cat > app/api/history/route.ts <<'EOF'
 import { listAppEvents, listGeneratedApps } from "@/lib/app-history";
 
 export const runtime = "nodejs";
@@ -36,4 +33,3 @@ export async function GET(request: Request) {
     );
   }
 }
-EOF

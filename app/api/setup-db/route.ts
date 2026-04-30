@@ -1,6 +1,3 @@
-mkdir -p app/api/setup-db
-
-cat > app/api/setup-db/route.ts <<'EOF'
 import { ensureHistoryTables } from "@/lib/app-history";
 
 export const runtime = "nodejs";
@@ -40,4 +37,3 @@ export async function GET(request: Request) {
     );
   }
 }
-EOF
