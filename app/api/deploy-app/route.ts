@@ -1,6 +1,3 @@
-mkdir -p app/api/deploy-app
-
-cat > app/api/deploy-app/route.ts <<'EOF'
 import { saveAppEvent, updateGeneratedAppDeploy } from "@/lib/app-history";
 import { createVercelProjectFromGit } from "@/lib/vercel";
 

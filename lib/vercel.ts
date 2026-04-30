@@ -1,6 +1,3 @@
-cd /workspaces/agente-criador-apps
-
-cat > lib/vercel.ts <<'EOF'
 type VercelProjectInput = {
   projectName: string;
   githubOwner: string;
@@ -30,6 +27,14 @@ function sanitizeProjectName(value: string) {
     .slice(0, 80);
 }
 
+function getErrorText(data: any) {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  return JSON.stringify(data, null, 2);
+}
+
 async function vercelRequest(path: string, options: RequestInit = {}) {
   const token = getEnv("VERCEL_TOKEN");
 
@@ -53,10 +58,7 @@ async function vercelRequest(path: string, options: RequestInit = {}) {
   }
 
   if (!response.ok) {
-    const message =
-      typeof data === "string" ? data : JSON.stringify(data, null, 2);
-
-    throw new Error(`Erro Vercel ${response.status}: ${message}`);
+    throw new Error(`Erro Vercel ${response.status}: ${getErrorText(data)}`);
   }
 
   return data;
@@ -97,6 +99,14 @@ export async function getVercelUser() {
   });
 }
 
+export async function getVercelProject(projectName: string) {
+  const safeProjectName = sanitizeProjectName(projectName);
+
+  return vercelRequest(`/v9/projects/${safeProjectName}`, {
+    method: "GET",
+  });
+}
+
 export async function createVercelProjectFromGit({
   projectName,
   githubOwner,
@@ -126,10 +136,7 @@ export async function createVercelProjectFromGit({
     };
   }
 
-  const errorText =
-    typeof createResult.data === "string"
-      ? createResult.data
-      : JSON.stringify(createResult.data).toLowerCase();
+  const errorText = getErrorText(createResult.data).toLowerCase();
 
   const alreadyExists =
     createResult.status === 409 ||
@@ -147,19 +154,5 @@ export async function createVercelProjectFromGit({
     };
   }
 
-  const message =
-    typeof createResult.data === "string"
-      ? createResult.data
-      : JSON.stringify(createResult.data, null, 2);
-
-  throw new Error(`Erro Vercel ${createResult.status}: ${message}`);
+  throw new Error(`Erro Vercel ${createResult.status}: ${getErrorText(createResult.data)}`);
 }
-
-export async function getVercelProject(projectName: string) {
-  const safeProjectName = sanitizeProjectName(projectName);
-
-  return vercelRequest(`/v9/projects/${safeProjectName}`, {
-    method: "GET",
-  });
-}
-EOF
