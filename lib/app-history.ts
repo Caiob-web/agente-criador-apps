@@ -1,4 +1,3 @@
-cat > lib/app-history.ts <<'EOF'
 import { dbQuery } from "./db";
 
 export type GeneratedAppInput = {
@@ -173,4 +172,3 @@ export async function listAppEvents(repoName: string) {
 
   return result.rows;
 }
-EOF

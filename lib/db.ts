@@ -1,4 +1,3 @@
-cat > lib/db.ts <<'EOF'
 import { Pool } from "pg";
 
 const globalForPg = globalThis as unknown as {
@@ -28,4 +27,3 @@ export async function dbQuery<T = any>(sql: string, params: any[] = []) {
   const result = await pool.query<T>(sql, params);
   return result;
 }
-EOF
