@@ -6,7 +6,9 @@ import {
 } from "@/lib/github";
 import { fallbackSpec, normalizeSpec } from "@/lib/app-spec";
 import { generateProfessionalFiles } from "@/lib/professional-generator";
+import { saveAppEvent, saveGeneratedApp } from "@/lib/app-history";
 
+export const runtime = "nodejs";
 export const maxDuration = 120;
 
 function extractJson(text: string) {
@@ -41,6 +43,29 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
         reject(error);
       });
   });
+}
+
+async function safeSaveAppEvent({
+  repoName,
+  eventType,
+  message,
+  metadata = {},
+}: {
+  repoName: string;
+  eventType: string;
+  message: string;
+  metadata?: Record<string, any>;
+}) {
+  try {
+    await saveAppEvent({
+      repoName,
+      eventType,
+      message,
+      metadata,
+    });
+  } catch (error) {
+    console.error("Erro ao salvar evento no Neon:", error);
+  }
 }
 
 async function generateSpec(prompt: string) {
@@ -82,6 +107,8 @@ Regras:
 - Visual profissional.
 - Nada genérico demais.
 - Foque no domínio do pedido.
+- Escolha cores coerentes com o tema do app.
+- Evite repetir sempre verde e azul.
 - Máximo 8 páginas.
 - Máximo 10 recursos.
 - Máximo 4 métricas.
@@ -107,6 +134,8 @@ Regras:
 }
 
 export async function POST(request: Request) {
+  let repoName = "";
+
   try {
     const body = await request.json();
 
@@ -120,7 +149,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const repoName = sanitizeRepoName(
+    repoName = sanitizeRepoName(
       rawRepoName || `app-${Date.now().toString()}`
     );
 
@@ -131,13 +160,45 @@ export async function POST(request: Request) {
       );
     }
 
+    await safeSaveAppEvent({
+      repoName,
+      eventType: "start",
+      message: "Criação do app iniciada.",
+      metadata: {
+        prompt,
+      },
+    });
+
     console.log("Gerando especificação profissional...");
     const { spec, usedSpecFallback } = await generateSpec(prompt);
+
+    await safeSaveAppEvent({
+      repoName,
+      eventType: "spec_generated",
+      message: "Especificação profissional gerada.",
+      metadata: {
+        appName: spec.appName,
+        appType: spec.appType,
+        primaryColor: spec.primaryColor,
+        secondaryColor: spec.secondaryColor,
+        usedSpecFallback,
+      },
+    });
 
     console.log("Montando arquivos profissionais...");
     const files = generateProfessionalFiles({
       prompt,
       spec,
+    });
+
+    await safeSaveAppEvent({
+      repoName,
+      eventType: "files_generated",
+      message: "Arquivos profissionais montados.",
+      metadata: {
+        filesCount: files.length,
+        files: files.map((file) => file.path),
+      },
     });
 
     console.log("Criando repositório no GitHub...");
@@ -149,14 +210,18 @@ export async function POST(request: Request) {
     const owner = repo?.owner?.login || process.env.GITHUB_OWNER;
 
     if (!owner) {
-      return Response.json(
-        {
-          ok: false,
-          error: "Não foi possível identificar o dono do repositório criado.",
-        },
-        { status: 500 }
-      );
+      throw new Error("Não foi possível identificar o dono do repositório criado.");
     }
+
+    await safeSaveAppEvent({
+      repoName,
+      eventType: "github_repo_created",
+      message: "Repositório criado ou reutilizado no GitHub.",
+      metadata: {
+        owner,
+        repoUrl: repo.html_url,
+      },
+    });
 
     console.log("Enviando arquivos para o GitHub...");
     await uploadFilesToRepo({
@@ -164,6 +229,57 @@ export async function POST(request: Request) {
       repo: repoName,
       files,
     });
+
+    await safeSaveAppEvent({
+      repoName,
+      eventType: "github_uploaded",
+      message: "Arquivos enviados para o GitHub com sucesso.",
+      metadata: {
+        repoUrl: repo.html_url,
+        filesCount: files.length,
+      },
+    });
+
+    let historySaved = false;
+
+    try {
+      await saveGeneratedApp({
+        repoName,
+        repoUrl: repo.html_url,
+        prompt,
+        appName: spec.appName,
+        appType: spec.appType,
+        filesCount: files.length,
+        usedFallback: usedSpecFallback,
+        status: "created",
+        vercelProjectId: null,
+        vercelUrl: null,
+      });
+
+      historySaved = true;
+
+      await safeSaveAppEvent({
+        repoName,
+        eventType: "history_saved",
+        message: "Histórico principal salvo no Neon.",
+        metadata: {
+          repoName,
+          appName: spec.appName,
+          appType: spec.appType,
+        },
+      });
+    } catch (error) {
+      console.error("Erro ao salvar histórico principal no Neon:", error);
+
+      await safeSaveAppEvent({
+        repoName,
+        eventType: "history_error",
+        message: "Erro ao salvar histórico principal no Neon.",
+        metadata: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
 
     console.log("Finalizado com sucesso.");
 
@@ -175,9 +291,21 @@ export async function POST(request: Request) {
       usedFallback: usedSpecFallback,
       appName: spec.appName,
       appType: spec.appType,
+      historySaved,
     });
   } catch (error: any) {
     console.error("Erro geral na API:", error);
+
+    if (repoName) {
+      await safeSaveAppEvent({
+        repoName,
+        eventType: "error",
+        message: error?.message || "Erro inesperado ao criar o app.",
+        metadata: {
+          stack: error?.stack || null,
+        },
+      });
+    }
 
     return Response.json(
       {
