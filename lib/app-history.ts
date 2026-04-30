@@ -172,3 +172,33 @@ export async function listAppEvents(repoName: string) {
 
   return result.rows;
 }
+
+export async function updateGeneratedAppDeploy({
+  repoName,
+  vercelProjectId,
+  vercelUrl,
+  status = "deployed",
+}: {
+  repoName: string;
+  vercelProjectId?: string | null;
+  vercelUrl?: string | null;
+  status?: string;
+}) {
+  await ensureHistoryTables();
+
+  const result = await dbQuery(
+    `
+    UPDATE generated_apps
+    SET
+      vercel_project_id = $2,
+      vercel_url = $3,
+      status = $4,
+      updated_at = NOW()
+    WHERE repo_name = $1
+    RETURNING *;
+    `,
+    [repoName, vercelProjectId || null, vercelUrl || null, status]
+  );
+
+  return result.rows[0] || null;
+}
